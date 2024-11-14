@@ -108,7 +108,11 @@ subst x m (Var y)
   | otherwise = Var y
 subst x m (Lam y n) = Lam y (substUnder x m y n)
 subst x m (App n1 n2) = App (subst x m n1) (subst x m n2)
-subst x m n = undefined
+subst x m (Store n) = Store (subst x m n)
+subst x m Recall = Recall
+subst x m (Throw n) = Throw (subst x m n)
+subst x m (Catch n1 y n2) = Catch (subst x m n1) y (substUnder x m y n2)
+
 
 {-------------------------------------------------------------------------------
 
@@ -202,7 +206,33 @@ bubble; this won't *just* be `Throw` and `Catch.
 -------------------------------------------------------------------------------}
 
 smallStep :: (Expr, Expr) -> Maybe (Expr, Expr)
-smallStep = undefined
+smallStep (Plus (Const i) (Const j), acc) = Just (Const (i + j), acc)
+smallStep (Plus (Const i) e2, acc) = do
+  (e2', acc') <- smallStep (e2, acc)
+  Just (Plus (Const i) e2', acc')
+smallStep (Plus e1 e2, acc) = do
+  (e1', acc') <- smallStep (e1, acc)
+  Just (Plus e1' e2, acc')
+smallStep (App (Lam x n) v, acc) | isValue v = Just (subst x v n, acc)
+smallStep (App e1 e2, acc) = do
+  (e1', acc') <- smallStep (e1, acc)
+  Just (App e1' e2, acc')
+smallStep (Store (Const i), _) = Just (Const i, Const i)
+smallStep (Store e, acc) = do
+  (e', acc') <- smallStep (e, acc)
+  Just (Store e', acc')
+smallStep (Recall, acc) = Just (acc, acc)
+smallStep (Throw (Const i), acc) = Just (Throw (Const i), acc)
+smallStep (Throw e, acc) = do
+  (e', acc') <- smallStep (e, acc)
+  Just (Throw e', acc')
+smallStep (Catch (Const i) _ _, acc) = Just (Const i, acc)
+smallStep (Catch (Throw w) y n, acc) = Just (subst y w n, acc)
+smallStep (Catch m y n, acc) = do
+  (m', acc') <- smallStep (m, acc)
+  Just (Catch m' y n, acc')
+smallStep _ = Nothing
+
 
 steps :: (Expr, Expr) -> [(Expr, Expr)]
 steps s = case smallStep s of
